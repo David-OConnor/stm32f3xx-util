@@ -1,6 +1,5 @@
-#![no_main]
 #![no_std]
 
-#[macro_use]
+// underscore to not interfere with `[#interrupt] in generated fn.
+pub mod interrupt_;
 pub mod low_power;
-pub mod interrupt;

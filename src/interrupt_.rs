@@ -7,11 +7,10 @@
 //!
 //! Special thanks to Jayce Boyd and Adam Greig, for being super bros.
 
-use cortex_m::interrupt::{free, Mutex};
 use cortex_m::peripheral::NVIC;
 use stm32f3xx_hal::{
     interrupt,
-    rcc::{Rcc, APB1},
+    rcc::APB1,
     stm32::{EXTI, PWR, RTC, SYSCFG},
 };
 
@@ -89,8 +88,9 @@ pub fn setup_wakeup(apb1: &mut APB1, pwr: &mut PWR) {
 /// is triggered.
 /// Eg:
 ///     make_interrupt_handler!(EXTI3);
-///     make_interrupt_handler!(EXTI9_5);
+///     make_interrupt_handler!(RTC_WKUP);
 ///     make_interrupt_handler!(EXTI15_10);
+#[macro_export]
 macro_rules! make_interrupt_handler {
     ($line:ident) => {
         #[interrupt]
@@ -491,7 +491,7 @@ pub fn setup_rtc_wakeup(syscfg: &mut SYSCFG, exti: &mut EXTI, rtc: &mut RTC) {
                                                // WUT[15:0] to 0x0000 with WUCKSEL[2:0] =011 (RTCCLK/2) is forbidden.
     rtc.cr.modify(|_, w| w.wute().bit(true));
     // Wakeup clock selection
-    rtc.cr.modify(|_, w| w.wucksel().bits(0x000)); // pg 295 todo: Is this what we want?
+    rtc.cr.modify(|_, w| unsafe { w.wcksel().bits(0x000) }); // pg 295 todo: Is this what we want?
 }
 
 // From the Ref manual, page 296:
