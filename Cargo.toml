@@ -1,0 +1,13 @@
+[package]
+name = "stm32f3xx-util"
+version = "0.1.0"
+authors = ["David O'Connor <david.alan.oconnor@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+# todo: Why do we need to hard-code a specific model. How do we avoid this?
+stm32f3xx-hal = { version = "^0.4.3", features = ["stm32f303xc"] }
+cortex-m = "0.6.2"
+#cortex-m-rt = "0.6.12"
+#f3 ="^0.6.1"
+embedded-hal = "^0.2.4"
