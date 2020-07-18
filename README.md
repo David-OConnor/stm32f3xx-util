@@ -1,5 +1,5 @@
-[![crates.io version](https://meritbadge.herokuapp.com/anyleaf)](https://crates.io/crates/anyleaf)
-[![docs.rs](https://docs.rs/anyleaf/badge.svg)](https://docs.rs/anyleaf)
+[![crates.io version](https://meritbadge.herokuapp.com/stm32f3xx-util)](https://crates.io/crates/stm32f3xx-util)
+[![docs.rs](https://docs.rs/stm32f3xx-util/badge.svg)](https://docs.rs/stm32f3xx-util)
 
 # Stm32f3xx-util
 
@@ -59,7 +59,7 @@ fn main() {
     // ...
     low_power::standby(&mut cp.SCB, &mut dp.PWR);
 
-    // Enter the state by trigger a wait-for-interrupt command.
+    // Enter the state by triggering a wait-for-interrupt command.
     cortex_m::asm::wfi();
 
 
