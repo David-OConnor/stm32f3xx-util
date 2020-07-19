@@ -31,6 +31,28 @@ fn main() {
 }
 ```
 
+Example using a RTC wakeup interrupt:
+```rust
+#![no_main]
+#![no_std]
+
+use cortex_m::{self, interrupt::free};
+use stm32f3xx_hal as hal;
+use hal::{
+    prelude::*,
+    interrupt,
+    stm32::{self, EXTI},
+};
+
+use stm32f3xx_util::{interrupt_, make_interrupt_handler};
+
+fn main() {
+    // Configure an interrupt triggered by the RTC in 1 second.
+    interrupt_::setup_rtc_wakeup(&mut dp.SYSCFG, exti: &mut dp.EXTI, rtc: &mut dp.RTC, 1_000);
+    make_interrupt_handler!(RTC_WKUP);
+}
+```
+
 Example initiating a low power state:
 ```rust
 #![no_main]
@@ -61,7 +83,5 @@ fn main() {
 
     // Enter the state by triggering a wait-for-interrupt command.
     cortex_m::asm::wfi();
-
-
 }
 ```
