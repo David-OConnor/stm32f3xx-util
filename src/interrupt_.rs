@@ -1,5 +1,4 @@
-//! Configure interrupts for the stm32f3xx. Release as a standalone module
-//! once complete.
+//! Configure interrupts for the stm32f3xx.
 //!
 //! See Jayce Boyd's guide here:
 //!     https://github.com/jkboyce/stm32f3xx-hal/blob/master/examples/gpio_interrupt.rs
@@ -82,7 +81,12 @@ pub fn setup_wakeup(apb1: &mut APB1, pwr: &mut PWR) {
     // enable SYSCFG clock to enable external interrupts; must come before RCC.constrain()
     // dp.RCC.apb2enr.write(|w| w.syscfgen().enabled());
 
-    apb1.enr().modify(|_, w| w.pwren().set_bit());
+    // todo: `enr` is private, but perhaps that pointer math will do the same.
+    // apb1.enr().modify(|_, w| w.pwren().set_bit());
+    // unsafe { (*RTC::ptr()).enr().modify(|_, w| w.pren().set_bit()) };
+    // unsafe { *RCC::ptr().apb1enr().modify(|_, w| w.pwren().enabled()) }
+    // todo: Put back a pwren modifier, either normal code with modded
+    // todo hal lib to make enr pub, or
     pwr.csr.modify(|_, w| w.ewup1().set_bit());
 }
 
@@ -99,9 +103,7 @@ macro_rules! make_interrupt_handler {
         fn $line() {
             free(|cs| {
                 // Reset pending bit for interrupt line
-                // todo: pr1 for all?
                 unsafe { (*EXTI::ptr()).pr1.modify(|_, w| w.pr1().bit(true)) };
-                // hprintln!("In exti $line").ok();
             });
         }
     };
@@ -505,7 +507,7 @@ pub fn setup_rtc_wakeup(syscfg: &mut SYSCFG, exti: &mut EXTI, rtc: &mut RTC, tim
 
     // See also: ST AN2759, Table 11
 
-    // todo RTC wakeup: Pc13 ??
+    // Ref man, section 27.5: RTC Interrups:
     // Configure and enable the EXTI line corresponding to the Wakeup timer even in
     // interrupt mode and select the rising edge sensitivity.
     // Configure and enable the RTC_WKUP IRQ channel in the NVIC.
@@ -532,7 +534,7 @@ pub fn setup_rtc_wakeup(syscfg: &mut SYSCFG, exti: &mut EXTI, rtc: &mut RTC, tim
     // value (WUT[15:0] in RTC_WUTR):
 
     // 1. Clear WUTE in RTC_CR to disable the wakeup timer.
-    rtc.cr.modify(|_, w| w.wute().bit(false));
+    rtc.cr.modify(|_, w| w.wute().clear_bit());
 
     // 2. Poll WUTWF until it is set in RTC_ISR to make sure the access to wakeup auto-reload
     // counter and to WUCKSEL[2:0] bits is allowed. It takes around 2 RTCCLK clock cycles
@@ -544,7 +546,7 @@ pub fn setup_rtc_wakeup(syscfg: &mut SYSCFG, exti: &mut EXTI, rtc: &mut RTC, tim
     // todo: This could be a big number. What if it overflows?
     // todo: And it needs to be u16, whcih will certainly cause it to overflow.
     // let sleep_for_cycles = LFE_FREQ * time_ms / 1000;
-    let sleep_for_cycles = 100;
+    let sleep_for_cycles = 1000;
     rtc.wutr.modify(|_, w| unsafe { w.wut().bits(sleep_for_cycles) });
 
     // and the wakeup clock selection

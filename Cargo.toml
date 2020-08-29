@@ -5,9 +5,10 @@ authors = ["David O'Connor <david.alan.oconnor@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-# todo: Why do we need to hard-code a specific model. How do we avoid this?
 # custom branch so we can make apb1.enr public.
-stm32f3xx-hal = { git = "https://github.com/David-OConnor/stm32f3xx-hal", branch = "interrupt", features = ["stm32f303xc", "rt"] }
+#stm32f3xx-hal = { git = "https://github.com/David-OConnor/stm32f3xx-hal", branch = "interrupt", features = ["stm32f303xc", "rt"] }
+#stm32f3xx-hal = { git = "https://github.com/stm32-rs/stm32f3xx-hal", features = ["stm32f303xc", "rt"] }
+stm32f3xx-hal = { path = "../stm32f3xx-hal", features = ["stm32f303xc", "rt"] }
 cortex-m = "0.6.2"
 #cortex-m-rt = "0.6.12"
 #f3 ="^0.6.1"
