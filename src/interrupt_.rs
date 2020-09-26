@@ -5,15 +5,14 @@
 //!     See ref manual page 249+
 //!
 //! Special thanks to Jayce Boyd and Adam Greig, for being super bros.
+//!
+//! For RTC interrupts, see the stm32f3xx_hal rtc module.
 
 use cortex_m::peripheral::NVIC;
 use stm32f3xx_hal::{
     interrupt,
-    rcc::APB1,
-    stm32::{EXTI, PWR, RTC, SYSCFG},
+    pac::{self, EXTI, SYSCFG},
 };
-
-const LFE_FREQ: u32 = 32_768;
 
 // use paste;
 
@@ -49,22 +48,6 @@ pub enum PNum {
     Two,
     Three,
 }
-// todo: Just use a u8 etc for this?
-
-// impl GpioReg {
-//     fn cr(&self) -> Cr {
-//         match self {
-//             Self::PA1 => Cr1,
-//             Self::PA2 => Cr1,
-//         }
-//     }
-// }
-
-// #[derive(Copy, Clone, Debug)]
-// pub enum Task {
-//     Enable,
-//     Disable,
-// }
 
 #[derive(Copy, Clone, Debug)]
 pub enum Edge {
@@ -72,30 +55,12 @@ pub enum Edge {
     Falling,
 }
 
-/// Set EWUP bit in PWR_CSR register; set PWREN bit to enable power interface clock.
-/// This is required to enable use of the WKUP pin, eg to wake up from standby.
-/// https://vasiliev.me/blog/sending-stm32f1-to-deep-sleep-with-rust/#fn:3
-/// We use our custom stm32f3xx hal branch to allow access to the (normally private) `enr`.
-pub fn setup_wakeup(apb1: &mut APB1, pwr: &mut PWR) {
-    // todo: We must somehow call this too:
-    // enable SYSCFG clock to enable external interrupts; must come before RCC.constrain()
-    // dp.RCC.apb2enr.write(|w| w.syscfgen().enabled());
-
-    // todo: `enr` is private, but perhaps that pointer math will do the same.
-    // apb1.enr().modify(|_, w| w.pwren().set_bit());
-    // unsafe { (*RTC::ptr()).enr().modify(|_, w| w.pren().set_bit()) };
-    // unsafe { *RCC::ptr().apb1enr().modify(|_, w| w.pwren().enabled()) }
-    // todo: Put back a pwren modifier, either normal code with modded
-    // todo hal lib to make enr pub, or
-    pwr.csr.modify(|_, w| w.ewup1().set_bit());
-}
-
 /// These functions are called when their appropriate interrupt line
 /// is triggered.
 /// Eg:
-///     make_interrupt_handler!(EXTI3);
-///     make_interrupt_handler!(RTC_WKUP);
-///     make_interrupt_handler!(EXTI15_10);
+///     `make_interrupt_handler!(EXTI3);`
+///     `make_interrupt_handler!(RTC_WKUP);`
+///     `make_interrupt_handler!(EXTI15_10);`
 #[macro_export]
 macro_rules! make_interrupt_handler {
     ($line:ident) => {
@@ -103,60 +68,11 @@ macro_rules! make_interrupt_handler {
         fn $line() {
             free(|cs| {
                 // Reset pending bit for interrupt line
-                unsafe { (*EXTI::ptr()).pr1.modify(|_, w| w.pr1().bit(true)) };
+                unsafe { (*pac::EXTI::ptr()).pr1.modify(|_, w| w.pr1().set_bit()) };
             });
         }
     };
 }
-
-//
-// #[macro_use]
-// macro_rules! set_interrupt {
-//     ($line:expr, $fnname:ident) => {
-//         pub fn $fnname(
-//             dp: &mut stm32::Peripherals,
-//             rcc: &mut stm32::RCC,
-//             p_reg: GpioReg,
-//             task: Task,
-//             edge: Edge,
-//         ) {
-//             // Select this GPIO pin as source input for EXTI$line external interrupt
-//
-//             // if line$ <= 3 {
-//                 dp.SYSCFG
-//                     .exticr1
-//                     .modify(|_, w| unsafe { w.exti$line().bits(gpio_reg.cr_val()) });
-//             // } else if line$ <= 7 {
-//             //     dp.SYSCFG
-//             //         .exticr2
-//             //         .modify(|_, w| unsafe { w.exti$line().bits(gpio_reg.cr_val()) });
-//             // } else if line$ <= 11 {
-//             //     dp.SYSCFG
-//             //         .exticr3
-//             //         .modify(|_, w| unsafe { w.exti$line().bits(gpio_reg.cr_val()) });
-//             // }
-//             // // todo etc.
-//
-//             match edge {
-//                 Edge::Rising => {
-//                     // configure EXTI$line to trigger on rising edge, disable trigger on falling edge
-//                     dp.EXTI.rtsr1.modify(|_, w| unsafe { w.tr$line().bit(true) });
-//                     dp.EXTI.ftsr1.modify(|_, w| unsafe { w.tr$line().bit(false) });
-//                 }
-//                 Edge::Falling => {
-//                     // configure EXTI$line to trigger on falling edge, disable trigger on rising edge
-//                     dp.EXTI.rtsr1.modify(|_, w| unsafe { w.tr$line().bit(false) });
-//                     dp.EXTI.ftsr1.modify(|_, w| unsafe { w.tr$line().bit(true) });
-//                 }
-//             }
-//
-//             // unmask EXTI
-//             dp.EXTI.imr1.modify(|_, w| w.mr$line().unmasked());
-//
-//             unsafe { NVIC::unmask(interrupt::EXTI$line) };
-//         }
-//     };
-// }
 
 /// Reference the STM32F303 reference manual, section 14.2.5 for a `Functional description`
 /// of the steps we accomplish here.
@@ -467,144 +383,6 @@ pub fn setup_gpio(syscfg: &mut SYSCFG, gpio_reg: GpioReg, line: u8) {
             .modify(|_, w| unsafe { w.exti15().bits(gpio_reg.cr_val()) }),
         _ => panic!("Can only setup GPIO interrupts on lines 0 - 15."),
     }
-}
-
-/// Process is from the STM32F3 Ref Man, Section 27.5
-pub fn setup_rtc_wakeup(syscfg: &mut SYSCFG, exti: &mut EXTI, rtc: &mut RTC, time_s: u32, time_us: u32) {
-    // todo: Split into initial config, and timer start fns?
-    // todo: Or a fn to set up wakeup, and another to set up the interrupt.
-
-     // 27.3.6 Periodic auto-wakeup
-    // The periodic wakeup flag is generated by a 16-bit programmable auto-reload down-counter.
-    // The wakeup timer range can be extended to 17 bits.
-    // The wakeup function is enabled through the WUTE bit in the RTC_CR register.
-    // The wakeup timer clock input can be:
-    // • RTC clock (RTCCLK) divided by 2, 4, 8, or 16.
-    // When RTCCLK is LSE(32.768kHz), this allows to configure the wakeup interrupt period
-    // from 122 µs to 32 s, with a resolution down to 61 µs.
-    // • ck_spre (usually 1 Hz internal clock)
-    // When ck_spre frequency is 1Hz, this allows to achieve a wakeup time from 1 s to
-    // around 36 hours with one-second resolution. This large programmable time range is
-    // divided in 2 parts:
-    // – from 1s to 18 hours when WUCKSEL [2:1] = 10
-    // – and from around 18h to 36h when WUCKSEL[2:1] = 11. In this last case 216 is
-    // added to the 16-bit counter current value.When the initialization sequence is
-    // complete (see Programming the wakeup timer on page 781), the timer starts
-    // counting down.When the wakeup function is enabled, the down-counting remains
-    // active in low-power modes. In addition, when it reaches 0, the WUTF flag is set in
-    // Real-time clock (RTC) RM0316
-    // 780/1141 DocID022558 Rev 8
-    // the RTC_ISR register, and the wakeup counter is automatically reloaded with its
-    // reload value (RTC_WUTR register value).
-    // The WUTF flag must then be cleared by software.
-    // When the periodic wakeup interrupt is enabled by setting the WUTIE bit in the RTC_CR2
-    // register, it can exit the device from low-power modes.
-    // The periodic wakeup flag can be routed to the RTC_ALARM output provided it has been
-    // enabled through bits OSEL[1:0] of RTC_CR register. RTC_ALARM output polarity can be
-    // configured through the POL bit in the RTC_CR register.
-    // System reset, as well as low-power modes (Sleep, Stop and Standby) have no influence on
-    // the wakeup timer
-
-    // See also: ST AN2759, Table 11
-
-    // Ref man, section 27.5: RTC Interrups:
-    // Configure and enable the EXTI line corresponding to the Wakeup timer even in
-    // interrupt mode and select the rising edge sensitivity.
-    // Configure and enable the RTC_WKUP IRQ channel in the NVIC.
-    // (Both of those steps above are handled by `setup_line`.)
-    setup_line(exti, 20, Edge::Rising);
-
-    // using-thehard-ware-realtime-clock, section 2.13:
-    // To protect the RTC registers against possible unintentional write accesses after reset, the
-    // RTC registers are initially, after a backup domain reset, locked. They must be unlocked to
-    // update the current calendar time and date.
-    // The write-access to the RTC registers is enabled by writing a key in the write protection
-    // register (RTC_WPR).
-    // The following sequence is required to unlock the write protection of the RTC register:
-    // 1. Write 0xCA into the RTC_WPR register.
-    // 2. Write 0x53 into the RTC_WPR register.
-    // Any write access to the RTC_WPR register different from the above described write
-    // sequence activates the write-protection mechanism for the RTC registers.
-    rtc.wpr.write(|w| unsafe {w.bits(0xCA) });
-    rtc.wpr.write(|w| unsafe {w.bits(0x53) });
-
-    // Ref man, page 781:
-    // Programming the wakeup timer
-    // The following sequence is required to configure or change the wakeup timer auto-reload
-    // value (WUT[15:0] in RTC_WUTR):
-
-    // 1. Clear WUTE in RTC_CR to disable the wakeup timer.
-    rtc.cr.modify(|_, w| w.wute().clear_bit());
-
-    // 2. Poll WUTWF until it is set in RTC_ISR to make sure the access to wakeup auto-reload
-    // counter and to WUCKSEL[2:0] bits is allowed. It takes around 2 RTCCLK clock cycles
-    // (due to clock synchronization).
-    while !rtc.isr.read().wutwf().bit_is_set() {}
-
-    // 3. Program the wakeup auto-reload value WUT[15:0]...
-    // todo: May need to pass in which oscillator you're using, or its freq. Maybe an enum.
-    // todo: This could be a big number. What if it overflows?
-    // todo: And it needs to be u16, whcih will certainly cause it to overflow.
-    // let sleep_for_cycles = LFE_FREQ * time_ms / 1000;
-    let sleep_for_cycles = 1000;
-    rtc.wutr.modify(|_, w| unsafe { w.wut().bits(sleep_for_cycles) });
-
-    // and the wakeup clock selection
-    // (WUCKSEL[2:0] bits in RTC_CR).
-    // The wakeup timer restarts down-counting. The WUTWF bit is cleared up to 2 RTCCLK
-    // clock cycles after WUTE is cleared, due to clock synchronization.
-    // See pg 795 for info on `WUCKSEL[2:0].
-    // todo: Is this what we want? 000 sets RTC/16.
-    // RTC clock (RTCCLK) divided by 2, 4, 8, or 16.
-    // When RTCCLK is LSE(32.768kHz), this allows to configure the wakeup interrupt period
-    // from 122 µs to 32 s, with a resolution down to 61 µs.
-
-    // See Using-the-hardware-realtime-clock-rtc document, section 2.4.2 for
-    // details on WUCKSEL.
-    // Configuration 1: WUCKSEL[2:0] = 0b0xx for short wakeup periods
-    // (see Periodic timebase/wakeup configuration for clock configuration 1)
-    // • Configuration 2: WUCKSEL[2:0] = 0b10x for medium wakeup periods
-    // (see Periodic timebase/wakeup configuration for clock configuration 2)
-    // • Configuration 3: WUCKSEL[2:0] = 0b11x for long wakeup periods
-    // (see Periodic timebase/wakeup configuration for clock configuration 3)
-
-    // Config 1:
-    // The minimum timebase/wakeup period is (0x0001 + 1) x 61.035 µs = 122.07 µs.
-    // The maximum timebase/wakeup period is (0xFFFF+ 1) x 488.28 µs = 32 s.
-    // Config 2:
-    // The minimum timebase/wakeup period is (0x0000 + 1) x 1 s = 1 s.
-    // The maximum timebase/wakeup period is (0xFFFF+ 1) x 1 s = 65536 s (18 hours).
-    // Config 3:
-    // The minimum timebase/wakeup period is (0x10000 + 1) x 1 s = 65537 s (18 hours + 1 s)
-    // The maximum timebase/wakeup period is (0x1FFFF+ 1) x 1 s = 131072 s (36 hours).
-    // todo: Pick a WUCKSEL and WUT etc based on the requested sleep time.
-    rtc.cr.modify(|_, w| unsafe { w.wcksel().bits(0b000) });
-
-    // Set WUTE in RTC_CR to enable the timer again.
-    rtc.cr.modify(|_, w| w.wute().bit(true));
-
-    // Write 0xFF into the RTC_WPR register
-    rtc.wpr.write(|w| unsafe {w.bits(0xFF) });
-
-    // Configure the RTC to detect the RTC Wakeup timer event.
-    // event flag: WUTF. Enable control bit: WUTIE
-    // rtc.isr.modify(|_, w| w.wutf().bit(true));  // todo: Is this what we want?
-
-    // todo: Cr2 for wutie?
-    // Enable the wakeup timer interrupt.
-    rtc.cr.modify(|_, w| w.wutie().bit(true)); // todo: Is this what we want?
-                                               // Enable the wakeup timer interrupt
-                                               // Ref man section 27.6.6: When the wakeup timer is enabled (WUTE set to 1), the WUTF flag
-                                               // is set every (WUT[15:0]
-                                               // + 1) ck_wut cycles. The ck_wut period is selected through WUCKSEL[2:0] bits of the
-                                               // RTC_CR register
-                                               // When WUCKSEL[2] = 1, the wakeup timer becomes 17-bits and WUCKSEL[1] effectively
-                                               // becomes WUT[16] the most-significant bit to be reloaded into the timer.
-                                               // The first assertion of WUTF occurs (WUT+1) ck_wut cycles after WUTE is set. Setting
-                                               // WUT[15:0] to 0x0000 with WUCKSEL[2:0] =011 (RTCCLK/2) is forbidden.
-
-    // Clear wakeup timer flag (?)
-
 }
 
 // From the Ref manual, page 296:
