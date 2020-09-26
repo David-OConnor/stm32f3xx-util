@@ -11,7 +11,7 @@
 use cortex_m::peripheral::NVIC;
 use stm32f3xx_hal::{
     interrupt,
-    pac::{self, EXTI, SYSCFG},
+    pac::{EXTI, SYSCFG},
 };
 
 // use paste;
